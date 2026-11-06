@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Lock Screen",
+    "description": "Covers the whole Harness window behind a password so a running session cannot be read while you are away."
+  }
+}
