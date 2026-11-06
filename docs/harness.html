@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<title>Lock Screen preview harness</title>
+<style>
+  /* Stand-in for the Harness theme tokens (only the six confirmed at runtime).
+     light = approximated, dark = values read out of the shipped CSS. */
+  :root {
+    --dsw-alias-bg-base: #ffffff;
+    --dsw-alias-label-primary: #1b1e23;
+    --dsw-alias-label-secondary: #61676e;
+    --dsw-alias-label-tertiary: #8a9099;
+    --dsw-alias-border-l2: rgba(0, 0, 0, 0.12);
+    --dsw-alias-brand-primary: #16181d;
+    --dsw-alias-state-error-primary: #d14343;
+    --harness-chrome: #f6f6f4;
+  }
+  html[data-theme='dark'] {
+    --dsw-alias-bg-base: #000000;
+    --dsw-alias-label-primary: #f9fafb;
+    --dsw-alias-label-secondary: #cfd3d6;
+    --dsw-alias-label-tertiary: #adb2b8;
+    --dsw-alias-border-l2: rgb(255 255 255 / 12%);
+    --dsw-alias-brand-primary: #f9fafb;
+    --dsw-alias-state-error-primary: #ff6b6b;
+    --harness-chrome: #0d0f12;
+  }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--dsw-alias-bg-base);
+    color: var(--dsw-alias-label-primary);
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  }
+  #app { display: flex; height: 100vh; }
+  #rail {
+    width: 56px; flex: 0 0 56px; display: flex; flex-direction: column;
+    justify-content: flex-end; gap: 6px; padding: 10px 0 12px;
+    background: var(--harness-chrome); border-right: 1px solid var(--dsw-alias-border-l2);
+    align-items: center;
+  }
+  #rail .rail-btn {
+    width: 32px; height: 32px; border-radius: 8px; border: 0; cursor: pointer;
+    background: transparent; color: var(--dsw-alias-label-secondary);
+    display: flex; align-items: center; justify-content: center; font-size: 15px;
+  }
+  #rail .rail-btn:hover { background: color-mix(in srgb, var(--dsw-alias-label-primary) 8%, transparent); }
+  #main { flex: 1; padding: 28px 32px; overflow: hidden; }
+  #main h1 { font-size: 17px; margin: 0 0 4px; font-weight: 600; }
+  #main p { font-size: 13px; color: var(--dsw-alias-label-secondary); margin: 0 0 18px; }
+  .fake-msg {
+    max-width: 680px; font-size: 13px; line-height: 1.75;
+    border: 1px solid var(--dsw-alias-border-l2); border-radius: 10px; padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .fake-msg .who { font-size: 11px; color: var(--dsw-alias-label-tertiary); margin-bottom: 6px; }
+  #hud {
+    position: fixed; left: 76px; bottom: 12px; z-index: 2147483600;
+    display: flex; gap: 8px;
+  }
+  #hud button {
+    font: inherit; font-size: 11px; padding: 5px 9px; border-radius: 7px;
+    border: 1px solid var(--dsw-alias-border-l2); background: var(--dsw-alias-bg-base);
+    color: var(--dsw-alias-label-secondary); cursor: pointer;
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="rail">
+    <div class="rail-btn" title="会话">☰</div>
+    <div id="trigger-root"></div>
+    <div class="rail-btn" title="设置">⚙</div>
+  </div>
+  <div id="main">
+    <h1>修复登录接口的 500</h1>
+    <p>工作区 default-workspace · 运行中</p>
+    <div class="fake-msg"><div class="who">you</div>线上登录一直 500，帮我看看哪里抛的，先别改代码。</div>
+    <div class="fake-msg"><div class="who">harness</div>我先定位异常来源：读 <code>src/auth/session.ts</code> 的 token 刷新分支，再跑一次本地复现，确认是空 refresh token 未判空。</div>
+    <div class="fake-msg"><div class="who">harness</div><code>npm run test:auth</code> … 3 passed, 1 failed — <code>session.refresh › rejects empty token</code>。失败点与线上日志的堆栈一致。</div>
+  </div>
+</div>
+<div id="overlay-root"></div>
+<div id="hud">
+  <button id="theme">切换 light / dark</button>
+  <button id="reset">清空密码 + 解锁</button>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+<script>
+  // Capture the client plugin exactly as the Harness module loader would.
+  window.__ModuleLoader__ = {
+    load(def) {
+      window.__plugin = { id: def.id, mod: def.factory((name) => (name === 'react' ? window.React : undefined)) };
+    },
+  };
+</script>
+<script src="../client.js"></script>
+<script>
+  (function () {
+    const dicts = { en: {}, zh: {} };
+    const comps = {};
+    let current = 'zh';
+    let snapshot = { locale: current };
+    const subs = new Set();
+
+    const t = (ns, key, params) => {
+      let s = (dicts[current] && dicts[current][key]) || (dicts.en && dicts.en[key]) || key;
+      if (params) s = s.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m));
+      return s;
+    };
+
+    const ctx = {
+      effect(fn) { try { fn(); } catch (e) { console.error('[effect]', e); } return () => {}; },
+      locale: {
+        bind: () => (key, params) => t('lock-screen', key, params),
+        register(ns, a, b) {
+          if (typeof a === 'string') dicts[a] = b;
+          else Object.assign(dicts, a);
+          return () => {};
+        },
+        // uSES contract: one stable object until the locale actually changes.
+        getSnapshot() { return snapshot; },
+        subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
+      },
+      slots: {
+        inject(owner, cb) { cb(); return () => {}; },
+        register(opts, Comp) { comps[opts.name] = Comp; return () => {}; },
+      },
+    };
+
+    const plugin = window.__plugin.mod;
+    if (plugin.inject) {
+      for (const name of plugin.inject) {
+        if (!ctx[name]) throw new Error('missing injected service: ' + name);
+      }
+    }
+    plugin.apply(ctx);
+
+    const React = window.React;
+    const ReactDOM = window.ReactDOM;
+
+    const triggerHost = document.getElementById('trigger-root');
+    const overlayHost = document.getElementById('overlay-root');
+    const triggerRoot = ReactDOM.createRoot(triggerHost);
+    const overlayRoot = ReactDOM.createRoot(overlayHost);
+
+    // Let the harness flip locale/theme without remounting the plugin.
+    window.__onLocale = () => {
+      snapshot = { locale: current };
+      for (const fn of subs) fn();
+    };
+
+    function mount() {
+      const Trigger = comps['sidebar.footer.action'];
+      const Overlay = comps['shell.overlay'];
+      triggerRoot.render(React.createElement(Trigger, { wide: false }));
+      overlayRoot.render(React.createElement(Overlay, {}));
+      window.__mounted = true;
+    }
+    mount();
+
+    document.getElementById('theme').addEventListener('click', () => {
+      const root = document.documentElement;
+      root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+    });
+    document.getElementById('reset').addEventListener('click', () => {
+      localStorage.removeItem('dsh.lock-screen.credential');
+      localStorage.removeItem('dsh.lock-screen.locked');
+      location.reload();
+    });
+    window.__harness = { comps, dicts, ctx, setLocale: (l) => { current = l; window.__onLocale(); } };
+  })();
+</script>
+</body>
+</html>
