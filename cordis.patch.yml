@@ -1,0 +1,3 @@
+- insert:
+    - id: dsh-lock-screen
+      name: '@local/dsh-lock-screen'
