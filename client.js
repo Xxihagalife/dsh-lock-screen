@@ -9,7 +9,7 @@
  * new tab comes back locked instead of exposing the session.
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-lock-screen',
+  id: 'dsh-lock-screen',
   factory(require) {
     const React = require('react');
     const h = React.createElement;
